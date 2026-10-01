@@ -14,6 +14,13 @@ use tracing::{info, warn};
 /// # Errors
 /// Returns an error if the daemon process cannot be spawned.
 pub fn spawn_daemon() -> std::io::Result<u32> {
+    // The packed installer sets this to the ferrosonic-ui binary so the
+    // background process serves the web UI as well as the player.
+    if let Some(launcher) = std::env::var_os("FERROSONIC_LAUNCHER") {
+        if !launcher.is_empty() {
+            return spawn_daemon_exe(Path::new(&launcher));
+        }
+    }
     let exe = std::env::current_exe()?;
     spawn_daemon_exe(&exe)
 }
