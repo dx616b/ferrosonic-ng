@@ -25,6 +25,18 @@ impl DaemonCore {
         password: &crate::secret::Secret,
     ) -> Result<PasswordStorage, Error> {
         let mut state = self.state.write().await;
+        // Empty password means "keep the credential already loaded" (keyring / file /
+        // previous save). The web UI and a reopened TUI never see the secret in Snapshot.
+        let password = if password.is_empty() {
+            if state.config.password.is_empty() {
+                return Err(Error::Config(crate::error::ConfigError::MissingField {
+                    field: "Password".to_string(),
+                }));
+            }
+            state.config.password.clone()
+        } else {
+            password.clone()
+        };
         let old_url = std::mem::replace(&mut state.config.base_url, base_url.to_string());
         let old_user = std::mem::replace(&mut state.config.username, username.to_string());
         let had_keyring = state.config.password_keyring;
@@ -38,7 +50,7 @@ impl DaemonCore {
             state.config.password = password.clone();
             PasswordStorage::PasswordEval
         } else if let Some(pf) = pf_opt.as_deref() {
-            if let Err(e) = crate::config::write_password_file_atomic(pf, password) {
+            if let Err(e) = crate::config::write_password_file_atomic(pf, &password) {
                 error!("Failed to write password to {}: {}", pf, e);
                 return Err(Error::Io(e));
             }
@@ -48,7 +60,7 @@ impl DaemonCore {
             state.config.password = password.clone();
             PasswordStorage::PasswordFile
         } else {
-            match crate::secret_store::store(base_url, username, password) {
+            match crate::secret_store::store(base_url, username, &password) {
                 Ok(()) => {
                     state.config.password_keyring = true;
                     state.config.password = crate::secret::Secret::new();
@@ -77,7 +89,7 @@ impl DaemonCore {
         }
 
         let mut new_client =
-            SubsonicClient::new(base_url, username, password).map_err(Error::Subsonic)?;
+            SubsonicClient::new(base_url, username, &password).map_err(Error::Subsonic)?;
         new_client.set_music_folder(music_folder_id);
         {
             // R4: bump gen before installing client, both under subsonic write so refreshes serialize.
@@ -124,13 +136,23 @@ impl DaemonCore {
     }
 
     /// Probe credentials without persisting; returns (ok, message).
+    /// An empty password reuses the credential already loaded in the daemon.
     pub async fn test_server_connection(
         self: &Arc<Self>,
         base_url: &str,
         username: &str,
         password: &crate::secret::Secret,
     ) -> (bool, String) {
-        match SubsonicClient::new(base_url, username, password) {
+        let password = if password.is_empty() {
+            let state = self.state.read().await;
+            if state.config.password.is_empty() {
+                return (false, "Password is required (none stored yet)".to_string());
+            }
+            state.config.password.clone()
+        } else {
+            password.clone()
+        };
+        match SubsonicClient::new(base_url, username, &password) {
             Ok(client) => match client.ping().await {
                 Ok(()) => (true, "Connection OK".to_string()),
                 Err(e) => (false, format!("Connection failed: {e}")),
