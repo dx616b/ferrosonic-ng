@@ -160,6 +160,7 @@ async fn apply_event_now_playing_when_disabled_skips_cover_fetch() {
         codec: None,
         bitrate_kbps: None,
         download_bps: None,
+        cache_secs: None,
     }));
     let client: std::sync::Arc<dyn ferrosonic::ipc::DaemonClient> =
         std::sync::Arc::new(ferrosonic::ipc::InProcessClient::new(td.core.clone()));
@@ -212,6 +213,7 @@ async fn apply_event_now_playing_with_same_cover_id_skips_fetch() {
         codec: None,
         bitrate_kbps: None,
         download_bps: None,
+        cache_secs: None,
     }));
     let client: std::sync::Arc<dyn ferrosonic::ipc::DaemonClient> =
         std::sync::Arc::new(ferrosonic::ipc::InProcessClient::new(td.core.clone()));

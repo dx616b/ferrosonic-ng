@@ -138,6 +138,7 @@ async fn apply_event_now_playing_with_cover_art_enabled_fetches_image() {
         codec: None,
         bitrate_kbps: None,
         download_bps: None,
+        cache_secs: None,
     }));
     let client: std::sync::Arc<dyn ferrosonic::ipc::DaemonClient> =
         std::sync::Arc::new(ferrosonic::ipc::InProcessClient::new(td.core.clone()));
@@ -198,6 +199,7 @@ async fn apply_event_now_playing_clears_cover_when_no_cover_id() {
         codec: None,
         bitrate_kbps: None,
         download_bps: None,
+        cache_secs: None,
     }));
     let client: std::sync::Arc<dyn ferrosonic::ipc::DaemonClient> =
         std::sync::Arc::new(ferrosonic::ipc::InProcessClient::new(td.core.clone()));
