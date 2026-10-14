@@ -48,6 +48,10 @@ pub struct PipeWireController {
     original_rate: Option<u32>,
     current_rate: Option<u32>,
     runner: Arc<dyn CommandRunner>,
+    /// Session latch: once a forced rate provably fails to move the graph
+    /// clock (verified post-settle), further pins are skipped. Reset only by
+    /// a daemon restart, which re-tests from scratch.
+    broken: bool,
 }
 
 impl PipeWireController {
@@ -95,6 +99,7 @@ impl PipeWireController {
             original_rate,
             current_rate: None,
             runner,
+            broken: false,
         }
     }
 
@@ -110,6 +115,19 @@ impl PipeWireController {
         self.current_rate
     }
 
+    /// Whether rate switching has proven ineffective this session (the graph
+    /// clock demonstrably ignored a forced rate). Callers skip further pins.
+    #[must_use]
+    pub const fn rate_switch_broken(&self) -> bool {
+        self.broken
+    }
+
+    /// Latch [`rate_switch_broken`](Self::rate_switch_broken): the graph
+    /// clock did not follow a forced rate even after the settle delay.
+    pub fn mark_rate_switch_broken(&mut self) {
+        self.broken = true;
+    }
+
     /// Force-rate value probed at construction, restored on drop.
     #[must_use]
     pub const fn get_original_rate(&self) -> Option<u32> {
@@ -121,6 +139,14 @@ impl PipeWireController {
     /// # Errors
     /// Returns an `AudioError` if the `PipeWire` command fails.
     pub async fn set_rate(&mut self, rate: u32) -> Result<(), AudioError> {
+        if self.broken {
+            // A previous pin provably failed to move the graph clock: don't
+            // fork pw-metadata (or imply bit-perfect) for the same outcome.
+            // Bookkeeping still advances so resume logic stays consistent.
+            debug!("Skipping PipeWire sample-rate pin (switching ineffective this session)");
+            self.current_rate = Some(rate);
+            return Ok(());
+        }
         // No cache short-circuit: external pw-metadata changes would
         // make the cache stale and bit-perfect would silently break.
         info!("Setting PipeWire sample rate to {} Hz", rate);
@@ -158,6 +184,23 @@ impl PipeWireController {
         self.current_rate = None;
         Ok(())
     }
+
+    /// Actual graph clock (`clock.rate`), or `None` when the query fails.
+    /// Unlike [`get_current_rate`](Self::get_current_rate) (the last rate we
+    /// *requested*), this is what the graph really runs at: the verifier for
+    /// forced pins.
+    pub async fn clock_rate(&self) -> Option<u32> {
+        let output = self
+            .runner
+            .run(&["-n", "settings", "0", "clock.rate"])
+            .await
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let rate = parse_clock_rate_from_output(&String::from_utf8_lossy(&output.stdout));
+        (rate > 0).then_some(rate)
+    }
 }
 
 /// Parses `value:'<rate>'` from pw-metadata output. Returns 0 if absent.
@@ -173,8 +216,29 @@ impl PipeWireController {
 /// ```
 #[must_use]
 pub fn parse_force_rate_from_output(stdout: &str) -> u32 {
+    parse_metadata_rate(stdout, "clock.force-rate")
+}
+
+/// Parses `value:'<rate>'` for `clock.rate` (the actual graph clock, as
+/// opposed to the requested force-rate). Returns 0 if absent.
+///
+/// ```
+/// use ferrosonic::audio::pipewire::parse_clock_rate_from_output;
+/// let happy = "key:'clock.rate' value:'44100' type:''";
+/// assert_eq!(parse_clock_rate_from_output(happy), 44100);
+/// assert_eq!(parse_clock_rate_from_output(""), 0);
+/// ```
+#[must_use]
+pub fn parse_clock_rate_from_output(stdout: &str) -> u32 {
+    parse_metadata_rate(stdout, "clock.rate")
+}
+
+/// Shared scanner behind the force-rate/clock-rate parsers: first line
+/// carrying both `key` and a `value:'<digits>'` marker wins; anything
+/// malformed yields 0.
+fn parse_metadata_rate(stdout: &str, key: &str) -> u32 {
     for line in stdout.lines() {
-        if line.contains("clock.force-rate") && line.contains("value:") {
+        if line.contains(key) && line.contains("value:") {
             if let Some(start) = line.find("value:'") {
                 let rest = &line[start + 7..];
                 if let Some(end) = rest.find('\'') {

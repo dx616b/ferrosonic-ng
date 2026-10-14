@@ -208,16 +208,23 @@ impl MpvController {
             .arg("--gapless-audio=yes")
             .arg("--prefetch-playlist=yes")
             .arg("--cache=yes")
-            .arg("--cache-secs=120")
-            .arg("--demuxer-max-bytes=100MiB")
+            // Deep stream buffer so network jitter never reaches the
+            // decoder: up to 5 minutes / 200 MiB held, 60 s read ahead.
+            // Nothing is kept on disk; this is RAM only.
+            .arg("--cache-secs=300")
+            .arg("--demuxer-max-bytes=200MiB")
+            .arg("--demuxer-readahead-secs=60")
             // No --audio-stream-silence: let PipeWire suspend the device
             // when paused/idle so the system sample rate can change.
             // Don't pause while waiting for the initial cache to fill —
             // start playback as soon as the decoder has bytes, which is
             // what we want for a music TUI.
             .arg("--cache-pause-initial=no")
-            // And don't pause on cache underrun later either.
-            .arg("--cache-pause=no")
+            // But DO pause (briefly) on a mid-song cache underrun and
+            // refill 5 s before resuming, instead of playing through the
+            // gap as an audible glitch.
+            .arg("--cache-pause=yes")
+            .arg("--cache-pause-wait=5")
             .arg(format!("--input-ipc-server={}", self.socket_path.display()))
             .stdout(Stdio::null())
             .stderr(Stdio::null());
