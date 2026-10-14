@@ -1101,13 +1101,39 @@ impl DaemonCore {
             state.now_playing.format = fmt;
             state.now_playing.channels = ch;
             changed.then(|| {
-                std::time::Duration::from_millis(u64::from(state.config.rate_switch_delay_ms))
+                (
+                    std::time::Duration::from_millis(u64::from(state.config.rate_switch_delay_ms)),
+                    rate,
+                )
             })
         } else {
             None
         };
-        if let Some(settle) = settle {
+        if let Some((settle, target)) = settle {
             tokio::time::sleep(settle).await;
+            if self.settle_superseded(gen) {
+                return;
+            }
+            // Verify the pin moved the graph clock. Some sinks refuse to
+            // re-clock while running (they stay at their open rate); without
+            // this check every rate change would pay the settle delay forever
+            // for no bit-perfect gain.
+            let actual = self.pipewire.lock().await.clock_rate().await;
+            match actual {
+                Some(clock) if clock == target => {}
+                Some(clock) => {
+                    let mut pw = self.pipewire.lock().await;
+                    if !pw.rate_switch_broken() {
+                        pw.mark_rate_switch_broken();
+                        warn!(
+                            "PipeWire graph stayed at {clock} Hz despite a {target} Hz pin; rate switching off for this session (playback continues, resampled)"
+                        );
+                    }
+                }
+                // Query itself failed: don't latch on a transient error, the
+                // next rate change re-tests.
+                None => debug!("PipeWire clock-rate query failed; skipping pin verification"),
+            }
         }
         if self.settle_superseded(gen) {
             return;
