@@ -635,6 +635,7 @@ impl DaemonCore {
         state.now_playing.codec = None;
         state.now_playing.bitrate_kbps = None;
         state.now_playing.download_bps = None;
+        state.now_playing.cache_secs = None;
         // R2: stamp last_loadfile under the state write lock so the 1.5s idle-advance gate in update_playback_info covers the in-flight loadfile, not only the post-loadfile window.
         self.stamp_loadfile();
         Ok((song, url))
