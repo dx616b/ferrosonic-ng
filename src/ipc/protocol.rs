@@ -284,6 +284,8 @@ pub enum DaemonEvent {
         bitrate_kbps: Option<u32>,
         /// Network read speed in bytes/s.
         download_bps: Option<u64>,
+        /// Seconds of audio held in mpv's demuxer cache.
+        cache_secs: Option<f64>,
     },
     /// Playback volume changed (percent, 0-100). Separate from
     /// `NowPlayingChanged` so a held volume key never fans out to MPRIS.

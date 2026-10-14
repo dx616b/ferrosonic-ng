@@ -84,6 +84,10 @@ pub struct NowPlaying {
     /// when not reading from the network (paused, or the file is fully cached).
     #[serde(default)]
     pub download_bps: Option<u64>,
+    /// Seconds of audio held in mpv's demuxer cache
+    /// (`demuxer-cache-duration`); `None` until mpv reports an estimate.
+    #[serde(default)]
+    pub cache_secs: Option<f64>,
 }
 
 impl NowPlaying {

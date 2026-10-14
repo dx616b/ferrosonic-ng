@@ -733,6 +733,18 @@ impl MpvController {
             .map(f64_to_u64))
     }
 
+    /// Seconds of audio currently held in the demuxer cache
+    /// (`demuxer-cache-duration`); `None` when mpv has no estimate yet.
+    ///
+    /// # Errors
+    /// Returns an `AudioError` if the mpv IPC command fails.
+    pub async fn get_cache_duration(&mut self) -> Result<Option<f64>, AudioError> {
+        let data = self
+            .send_command(vec![json!("get_property"), json!("demuxer-cache-duration")])
+            .await?;
+        Ok(data.and_then(|v| v.as_f64()).filter(|d| *d >= 0.0))
+    }
+
     /// Channel layout label, e.g. `"Stereo"` or `"5ch"`.
     ///
     /// # Errors

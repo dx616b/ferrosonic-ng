@@ -249,6 +249,7 @@ impl DaemonCore {
                 state.now_playing.codec = None;
                 state.now_playing.bitrate_kbps = None;
                 state.now_playing.download_bps = None;
+                state.now_playing.cache_secs = None;
                 drop(state);
                 Some(next_pos)
             } else {
@@ -444,7 +445,7 @@ impl DaemonCore {
     async fn poll_stream_stats(
         self: &Arc<Self>,
         known_codec: Option<String>,
-    ) -> (Option<String>, Option<u32>, Option<u64>) {
+    ) -> (Option<String>, Option<u32>, Option<u64>, Option<f64>) {
         let mut mpv = self.mpv.lock().await;
         let codec = match known_codec {
             Some(c) => Some(c),
@@ -452,24 +453,37 @@ impl DaemonCore {
         };
         let bitrate = mpv.get_audio_bitrate().await.ok().flatten();
         let speed = mpv.get_cache_speed().await.ok().flatten();
+        let cache = mpv.get_cache_duration().await.ok().flatten();
         drop(mpv);
-        (codec, bitrate.map(|b| crate::num::u32_sat(b / 1000)), speed)
+        (
+            codec,
+            bitrate.map(|b| crate::num::u32_sat(b / 1000)),
+            speed,
+            cache,
+        )
     }
 
     /// Store the polled stats and broadcast only when one of them moved.
     async fn commit_stream_stats(
         self: &Arc<Self>,
-        (codec, bitrate_kbps, download_bps): (Option<String>, Option<u32>, Option<u64>),
+        (codec, bitrate_kbps, download_bps, cache_secs): (
+            Option<String>,
+            Option<u32>,
+            Option<u64>,
+            Option<f64>,
+        ),
     ) {
         let changed = {
             let mut state = self.state.write().await;
             let np = &mut state.now_playing;
             let changed = np.codec != codec
                 || np.bitrate_kbps != bitrate_kbps
-                || np.download_bps != download_bps;
+                || np.download_bps != download_bps
+                || np.cache_secs != cache_secs;
             np.codec.clone_from(&codec);
             np.bitrate_kbps = bitrate_kbps;
             np.download_bps = download_bps;
+            np.cache_secs = cache_secs;
             changed
         };
         if changed {
@@ -477,6 +491,7 @@ impl DaemonCore {
                 codec,
                 bitrate_kbps,
                 download_bps,
+                cache_secs,
             });
         }
     }

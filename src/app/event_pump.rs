@@ -76,11 +76,13 @@ pub async fn apply_event(
             codec,
             bitrate_kbps,
             download_bps,
+            cache_secs,
         } => {
             let mut ds = daemon_state.write().await;
             ds.now_playing.codec = codec;
             ds.now_playing.bitrate_kbps = bitrate_kbps;
             ds.now_playing.download_bps = download_bps;
+            ds.now_playing.cache_secs = cache_secs;
         }
         DaemonEvent::VolumeChanged(vol) => {
             {
